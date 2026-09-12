@@ -5,12 +5,12 @@ terraform {
       version = "~> 3.0"
     }
   }
-  backend "azurerm"{
-    resource_group_name  = "blr-rg"
-    storage_account_name = "pipeline18batch"
-    container_name      = "forb18"
-    key = "forb18-state"
-  }
+  # backend "azurerm"{
+  #   resource_group_name  = "blr-rg"
+  #   storage_account_name = "pipeline18batch"
+  #   container_name      = "forb18"
+  #   key = "forb18-state"
+  # }
 }
 
 provider "azurerm" {
