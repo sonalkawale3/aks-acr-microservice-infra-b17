@@ -1,0 +1,108 @@
+trigger:
+  branches:
+    include:
+      - main
+
+pr:
+  branches:
+    include:
+      - main
+
+variables:
+  - name: TF_WORKING_DIR
+    value: './environments/dev'
+  # Note: Add the following variables (AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_SUBSCRIPTION_ID, AZURE_TENANT_ID) 
+  # as secret variables in your Azure DevOps pipeline settings or link them from an Azure DevOps Variable Group.
+
+stages:
+- stage: LintAndScan
+  displayName: 'Lint and Security Scan'
+  jobs:
+  - job: LintAndScanJob
+    displayName: 'Lint and Security Scan'
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - checkout: self
+
+    - task: TerraformInstaller@1
+      displayName: 'Setup Terraform'
+      inputs:
+        terraformVersion: 'latest'
+
+    - script: terraform fmt -check -recursive
+      displayName: 'Terraform Format Check'
+
+    - script: |
+        curl -s https://raw.githubusercontent.com/terraform-linters/tflint/master/install_linux.sh | bash
+        tflint --init
+        tflint -f compact
+      displayName: 'Run TFLint'
+
+    - script: |
+        curl -s https://raw.githubusercontent.com/aquasecurity/tfsec/master/scripts/install_linux.sh | bash
+        tfsec $(TF_WORKING_DIR)
+      displayName: 'Run tfsec'
+
+    - script: |
+        pip install checkov
+        checkov -d . --framework terraform --soft-fail
+      displayName: 'Run Checkov'
+
+- stage: TerraformPlan
+  displayName: 'Terraform Plan'
+  dependsOn: LintAndScan
+  # Run this stage only for Pull Requests
+  condition: eq(variables['Build.Reason'], 'PullRequest')
+  jobs:
+  - job: TerraformPlanJob
+    displayName: 'Terraform Plan'
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - checkout: self
+
+    - task: TerraformInstaller@1
+      displayName: 'Setup Terraform'
+      inputs:
+        terraformVersion: 'latest'
+
+    - script: |
+        terraform init
+        terraform plan -no-color -input=false -var-file=terraform.tfvars
+      displayName: 'Terraform Init and Plan'
+      workingDirectory: $(TF_WORKING_DIR)
+      env:
+        ARM_CLIENT_ID: $(AZURE_CLIENT_ID)
+        ARM_CLIENT_SECRET: $(AZURE_CLIENT_SECRET)
+        ARM_SUBSCRIPTION_ID: $(AZURE_SUBSCRIPTION_ID)
+        ARM_TENANT_ID: $(AZURE_TENANT_ID)
+
+- stage: TerraformApply
+  displayName: 'Terraform Apply'
+  dependsOn: LintAndScan
+  # Run this stage only when changes are pushed/merged to the main branch
+  condition: and(succeeded(), in(variables['Build.Reason'], 'IndividualCI', 'BatchedCI'), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+  jobs:
+  - job: TerraformApplyJob
+    displayName: 'Terraform Apply'
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - checkout: self
+
+    - task: TerraformInstaller@1
+      displayName: 'Setup Terraform'
+      inputs:
+        terraformVersion: 'latest'
+
+    - script: |
+        terraform init
+        terraform apply -auto-approve -input=false -var-file=terraform.tfvars
+      displayName: 'Terraform Init and Apply'
+      workingDirectory: $(TF_WORKING_DIR)
+      env:
+        ARM_CLIENT_ID: $(AZURE_CLIENT_ID)
+        ARM_CLIENT_SECRET: $(AZURE_CLIENT_SECRET)
+        ARM_SUBSCRIPTION_ID: $(AZURE_SUBSCRIPTION_ID)
+        ARM_TENANT_ID: $(AZURE_TENANT_ID)
